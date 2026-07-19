@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PackForge · 电芯分容配对系统</title>
+<link rel="stylesheet" href="css/styles.css">
+<!-- SheetJS 用于读取/导出 Excel -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-logo">⚡</div>
+      <div class="brand-text">
+        <h1>电芯分容配对系统</h1>
+        <p>Battery Cell Grading &amp; Matching Tool</p>
+      </div>
+    </div>
+    <div class="topbar-steps">
+      <span class="step" data-step="1">① 上传数据</span>
+      <span class="step" data-step="2">② 电芯参数</span>
+      <span class="step" data-step="3">③ 成品配置</span>
+      <span class="step" data-step="4">④ 偏差设置</span>
+      <span class="step" data-step="5">⑤ 配对计算</span>
+      <span class="step" data-step="6">⑥ 成品报告</span>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- ===== 提示条 ===== -->
+  <div id="toast" class="toast"></div>
+
+  <!-- ===== 区块1：上传电芯数据 ===== -->
+  <section class="card" id="sec-upload">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">1</span>
+        <h2>上传电芯测试数据</h2>
+      </div>
+      <p class="card-desc">上传 Excel 文件，系统自动识别「序号 / 容量 / 内阻」列。支持 .xlsx / .xls / .csv</p>
+    </div>
+    <div class="card-body">
+      <div id="dropzone" class="dropzone">
+        <div class="dropzone-icon">📄</div>
+        <p class="dropzone-main">将 Excel 文件拖到这里，或 <span class="link">点击选择文件</span></p>
+        <p class="dropzone-hint">表头需包含：序号、容量、内阻（列名可略有差异，系统会智能匹配）</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      </div>
+
+      <div id="uploadStatus" class="upload-status hidden"></div>
+
+      <div id="dataPreviewWrap" class="data-preview-wrap hidden">
+        <div class="preview-head">
+          <h3>已解析电芯数据 <span id="dataCount" class="badge"></span></h3>
+          <div class="preview-actions">
+            <button class="btn btn-ghost btn-sm" id="btnReupload">重新上传</button>
+            <button class="btn btn-ghost btn-sm" id="btnDownloadParsed">导出解析数据</button>
+          </div>
+        </div>
+        <div class="cell-grid-wrap">
+          <div class="cell-grid-head">
+            <span class="cg-idx">序号</span>
+            <span class="cg-cap">容量 (mAh)</span>
+            <span class="cg-res">内阻 (mΩ)</span>
+            <span class="cg-conv">换算容量</span>
+          </div>
+          <div class="cell-grid" id="previewGrid"></div>
+        </div>
+        <p class="preview-note" id="previewNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 区块2：电芯参数与一致性报告 ===== -->
+  <section class="card" id="sec-cellparams">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">2</span>
+        <h2>电芯参数设置 &amp; 一致性报告</h2>
+      </div>
+      <p class="card-desc">填写电芯类型与测试条件，系统将估算电芯最大容量并生成一致性 / 质量报告</p>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>电池类型</label>
+          <select id="cellType">
+            <option value="ncm">三元锂 (NCM/NCA)</option>
+            <option value="lfp">磷酸铁锂 (LFP)</option>
+            <option value="lco">钴酸锂 (LCO)</option>
+            <option value="lmto">钛酸锂 (LTO)</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>额定容量 (mAh)</label>
+          <input type="number" id="ratedCapacity" placeholder="如 5000" value="5000">
+        </div>
+        <div class="form-row">
+          <label>额定最大放电倍率 (C) <span class="c-hint" id="hintMaxDischargeA">≈ 25A</span></label>
+          <input type="number" id="ratedMaxDischargeC" placeholder="如 5" value="5" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>充电倍率 (C) <span class="c-hint" id="hintChargeA">≈ 5A</span></label>
+          <input type="number" id="chargeCurrentC" placeholder="如 1" value="1" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>容量测试·起始电压 (V)</label>
+          <input type="number" id="testStartV" placeholder="如 4.2" value="4.2" step="0.01">
+        </div>
+        <div class="form-row">
+          <label>容量测试·截止电压 (V)</label>
+          <input type="number" id="testCutoffV" placeholder="如 3.0" value="3.0" step="0.01">
+        </div>
+        <div class="form-row">
+          <label>容量测试·放电电流 (A)</label>
+          <input type="number" id="testDischargeI" placeholder="如 5" value="5" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>满充上限电压 (V)</label>
+          <input type="number" id="fullChargeV" placeholder="如 4.2" value="4.2" step="0.01">
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <button class="btn btn-primary" id="btnAnalyze">分析电芯一致性</button>
+      </div>
+
+      <div id="consistencyReport" class="report-area hidden"></div>
+    </div>
+  </section>
+
+  <!-- ===== 区块3：成品电池配置 ===== -->
+  <section class="card" id="sec-packconfig">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">3</span>
+        <h2>成品电池配置</h2>
+      </div>
+      <p class="card-desc">两种方式配置目标电池，系统自动换算串并联与所需电芯数</p>
+    </div>
+    <div class="card-body">
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="vc">方式一：填写电压 + 容量</button>
+        <button class="mode-tab" data-mode="sp">方式二：填写并数 + 串数</button>
+      </div>
+
+      <!-- 方式一：电压+容量 -->
+      <div class="mode-panel active" id="mode-vc">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>目标电压 (V)</label>
+            <input type="number" id="targetVoltage" placeholder="如 72" step="0.1">
+          </div>
+          <div class="form-row">
+            <label>目标容量 (Ah)</label>
+            <input type="number" id="targetCapacityAh" placeholder="如 100" step="0.1">
+          </div>
+        </div>
+        <div class="hint-box" id="vcHint"></div>
+      </div>
+
+      <!-- 方式二：并数+串数 -->
+      <div class="mode-panel" id="mode-sp">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>串联数 (S)</label>
+            <input type="number" id="seriesCount" placeholder="如 20" min="1">
+          </div>
+          <div class="form-row">
+            <label>并联数 (P)</label>
+            <input type="number" id="parallelCount" placeholder="如 11" min="1">
+          </div>
+        </div>
+        <div class="hint-box" id="spHint"></div>
+      </div>
+
+      <div id="packConfigResult" class="result-box hidden"></div>
+    </div>
+  </section>
+
+  <!-- ===== 区块4：偏差范围设置 ===== -->
+  <section class="card" id="sec-tolerance">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">4</span>
+        <h2>配对偏差范围设置</h2>
+      </div>
+      <p class="card-desc">选择应用场景自动套用推荐偏差，也可手动调整（场景将自动变为「自定义」）</p>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>应用场景预设</label>
+          <select id="tolScene">
+            <option value="power">动力电池（电动车 / 无人机）— 最严</option>
+            <option value="storage" selected>储能电池（家庭 / 电站储能）</option>
+            <option value="etool">电动工具 / 电动自行车</option>
+            <option value="backup">备用电源 / 低功耗设备 — 最宽</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+      </div>
+      <div class="scene-note" id="tolSceneNote"></div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>单串内容量偏差上限 (%)</label>
+          <input type="number" id="tolCapIn" value="2" min="0" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>单串内内阻偏差上限 (%)</label>
+          <input type="number" id="tolResIn" value="10" min="0" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>串间容量偏差上限 (%)</label>
+          <input type="number" id="tolCapBetween" value="1" min="0" step="0.1">
+        </div>
+        <div class="form-row">
+          <label>串间内阻偏差上限 (%)</label>
+          <input type="number" id="tolResBetween" value="10" min="0" step="0.1">
+        </div>
+      </div>
+      <div class="tip">💡 推荐值参考页面底部「不同场景电芯一致性参考」表，超出范围的配对项将在配对表中标红提醒。</div>
+    </div>
+  </section>
+
+  <!-- ===== 区块5：配对计算 ===== -->
+  <section class="card" id="sec-pairing">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">5</span>
+        <h2>分容配对计算</h2>
+      </div>
+      <p class="card-desc">根据电芯数据与目标配置，计算最优配对方案，生成每串电芯清单</p>
+    </div>
+    <div class="card-body">
+      <div class="pairing-mode-bar">
+        <span class="pairing-mode-label">配对模式：</span>
+        <label class="mode-opt"><input type="radio" name="pairMode" value="balanced" checked>
+          <span class="mode-opt-card">
+            <span class="mode-opt-title">均衡优先</span>
+            <span class="mode-opt-desc">所有串整体最均衡（LPT），可能个别串偏差略超</span>
+          </span>
+        </label>
+        <label class="mode-opt"><input type="radio" name="pairMode" value="strict">
+          <span class="mode-opt-card">
+            <span class="mode-opt-title">达标优先</span>
+            <span class="mode-opt-desc">每串必须满足偏差范围，凑不满则报告缺口</span>
+          </span>
+        </label>
+      </div>
+      <div class="action-bar">
+        <button class="btn btn-primary btn-lg" id="btnPair">⚡ 开始配对计算</button>
+      </div>
+
+      <div id="pairError" class="error-box hidden"></div>
+
+      <div id="pairResult" class="hidden">
+        <div class="result-head">
+          <h3>配对方案 · 每串电芯清单</h3>
+          <button class="btn btn-primary btn-sm" id="btnDownloadPair">⬇ 下载配对表 (Excel)</button>
+        </div>
+        <div class="table-wrap">
+          <table class="pair-table" id="pairTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 区块6：成品电池报告 ===== -->
+  <section class="card" id="sec-report">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">6</span>
+        <h2>成品电池综合报告</h2>
+      </div>
+      <p class="card-desc">大电池基本信息、保护电压预估容量、各串偏差分析</p>
+    </div>
+    <div class="card-body">
+      <div id="packReport" class="report-area hidden"></div>
+    </div>
+  </section>
+
+  <!-- ===== 区块7：电池知识 ===== -->
+  <section class="card" id="sec-knowledge">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">7</span>
+        <h2>电池基础知识</h2>
+      </div>
+      <p class="card-desc">常见电芯参数与一致性参考标准</p>
+    </div>
+    <div class="card-body">
+      <div id="knowledgeArea"></div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>电芯分容配对系统 · 仅供 DIY 组装参考，实际使用请以专业设备测量为准 · 注意用电安全 ⚠️</p>
+  </footer>
+</main>
+
+<script src="js/knowledge.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/pair.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
