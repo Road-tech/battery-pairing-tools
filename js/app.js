@@ -690,6 +690,8 @@ const App = {
       r.addEventListener("change", () => {
         const strict = this.getPairMode() === "strict";
         document.getElementById("strictObj").style.display = strict ? "flex" : "none";
+        const tip = document.getElementById("strictObjTip");
+        if (tip) tip.style.display = strict ? "block" : "none";
       });
     });
   },

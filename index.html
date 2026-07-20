@@ -268,6 +268,9 @@
         <label class="strict-obj-opt"><input type="radio" name="strictObj" value="within">
           串内一致性优先<span class="strict-obj-hint">（维持逐串最优，串间偏差可能略大）</span></label>
       </div>
+      <div class="strict-obj-tip" id="strictObjTip" style="display:none">
+        💡 <strong>如何选：</strong>若保护板支持<strong>主动均衡</strong>（如 1A 主动均衡），建议选「串内一致性优先」——主动均衡能抹平<strong>串间</strong>差异，却无法修正并联组内的容量/内阻差（硬件补不了），应交给配对算法保证；若无主动均衡（仅 mA 级被动均衡），则选「串间均衡优先」，由算法预先压低串间偏差。
+      </div>
       <div class="action-bar">
         <button class="btn btn-primary btn-lg" id="btnPair">⚡ 开始配对计算</button>
       </div>

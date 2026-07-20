@@ -420,6 +420,18 @@ body {
 .strict-obj-opt { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-soft); }
 .strict-obj-opt input { accent-color: var(--primary); }
 .strict-obj-hint { color: var(--text-mute); font-size: 12px; }
+.strict-obj-tip {
+  margin: 4px 0 2px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  background: var(--info-soft, #eff6ff);
+  border: 1px solid #bfdbfe;
+  border-left: 3px solid #3b82f6;
+  border-radius: var(--radius-md);
+}
+.strict-obj-tip strong { color: var(--text); font-weight: 600; }
 
 /* 配对清单 · 串标签页 */
 .str-tabs {
