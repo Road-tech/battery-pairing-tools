@@ -262,7 +262,12 @@ body {
 .data-preview-wrap { margin-top: 18px; }
 .preview-table-wrap { max-height: 360px; overflow-y: auto; }
 
-/* ===== 电芯数据三列网格 ===== */
+/* 区块内分隔条（上传区与参数表单之间） */
+.divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 6px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--card-border); }
+.divider span { font-size: 12px; font-weight: 600; color: var(--text-mute); letter-spacing: 1px; }
+
+/* ===== 电芯数据四列网格（序号 / 容量 / 内阻 / 换算容量） ===== */
 .cell-grid-wrap {
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
@@ -272,14 +277,21 @@ body {
 }
 .cell-grid-head {
   display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--card-border);
+}
+.cg-group {
+  display: grid;
   grid-template-columns: 0.7fr 1fr 1fr 1fr;
   gap: 6px;
-  padding: 9px 14px;
+  padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-soft);
-  background: var(--bg-soft);
-  border-bottom: 1px solid var(--card-border);
+  align-items: center;
 }
 .cell-grid {
   display: grid;
@@ -308,7 +320,7 @@ body {
 }
 .cell-item .ci-cap { color: var(--text); font-weight: 600; }
 .cell-item .ci-res { color: var(--text-soft); }
-.cell-item .ci-conv { color: var(--text-soft); }
+.cell-item .ci-conv { color: #0a8a4d; font-weight: 600; }
 @media (max-width: 720px) {
   .cell-grid { grid-template-columns: repeat(2, 1fr); }
   .cell-grid-head { display: none; }
@@ -390,6 +402,65 @@ body {
   color: var(--text-mute);
   line-height: 1.4;
 }
+
+/* 达标优先 · 串间次级目标 */
+.strict-obj {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.strict-obj-label { color: var(--text-mute); white-space: nowrap; }
+.strict-obj-opt { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-soft); }
+.strict-obj-opt input { accent-color: var(--primary); }
+.strict-obj-hint { color: var(--text-mute); font-size: 12px; }
+
+/* 配对清单 · 串标签页 */
+.str-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-top: 16px;
+  border-bottom: 1px solid var(--card-border);
+  scrollbar-width: thin;
+}
+.str-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-mute);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+.str-tab:hover { color: var(--text-soft); border-color: var(--primary); }
+.str-tab.active {
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+.str-tab .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.str-tab .dot.ok { background: var(--ok); }
+.str-tab .dot.warn { background: var(--warn); }
+.str-tab .dot.danger { background: var(--danger); }
+.str-tab.unused { font-weight: 500; }
+.str-tab-body { margin-top: 4px; }
 
 /* 缺口报告区 */
 .gap-report {

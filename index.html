@@ -15,13 +15,13 @@
     <div class="brand">
       <div class="brand-logo">⚡</div>
       <div class="brand-text">
-        <h1>电芯分容配对系统</h1>
-        <p>Battery Cell Grading &amp; Matching Tool</p>
+        <h1>PackForge</h1>
+        <p>电芯分容配对系统 · Battery Cell Grading &amp; Matching Tool</p>
       </div>
     </div>
     <div class="topbar-steps">
-      <span class="step" data-step="1">① 上传数据</span>
-      <span class="step" data-step="2">② 电芯参数</span>
+      <span class="step" data-step="1">① 数据 &amp; 参数</span>
+      <span class="step" data-step="2">② 一致性分析</span>
       <span class="step" data-step="3">③ 成品配置</span>
       <span class="step" data-step="4">④ 偏差设置</span>
       <span class="step" data-step="5">⑤ 配对计算</span>
@@ -35,14 +35,14 @@
   <!-- ===== 提示条 ===== -->
   <div id="toast" class="toast"></div>
 
-  <!-- ===== 区块1：上传电芯数据 ===== -->
-  <section class="card" id="sec-upload">
+  <!-- ===== 区块1：上传电芯数据 & 参数设置（合并） ===== -->
+  <section class="card" id="sec-input">
     <div class="card-head">
       <div class="card-title">
         <span class="card-no">1</span>
-        <h2>上传电芯测试数据</h2>
+        <h2>上传电芯数据 &amp; 参数设置</h2>
       </div>
-      <p class="card-desc">上传 Excel 文件，系统自动识别「序号 / 容量 / 内阻」列。支持 .xlsx / .xls / .csv</p>
+      <p class="card-desc">上传 Excel 自动识别「序号 / 容量 / 内阻」，并填写电芯类型与测试条件，系统将自动换算满容量</p>
     </div>
     <div class="card-body">
       <div id="dropzone" class="dropzone">
@@ -54,38 +54,8 @@
 
       <div id="uploadStatus" class="upload-status hidden"></div>
 
-      <div id="dataPreviewWrap" class="data-preview-wrap hidden">
-        <div class="preview-head">
-          <h3>已解析电芯数据 <span id="dataCount" class="badge"></span></h3>
-          <div class="preview-actions">
-            <button class="btn btn-ghost btn-sm" id="btnReupload">重新上传</button>
-            <button class="btn btn-ghost btn-sm" id="btnDownloadParsed">导出解析数据</button>
-          </div>
-        </div>
-        <div class="cell-grid-wrap">
-          <div class="cell-grid-head">
-            <span class="cg-idx">序号</span>
-            <span class="cg-cap">容量 (mAh)</span>
-            <span class="cg-res">内阻 (mΩ)</span>
-            <span class="cg-conv">换算容量</span>
-          </div>
-          <div class="cell-grid" id="previewGrid"></div>
-        </div>
-        <p class="preview-note" id="previewNote"></p>
-      </div>
-    </div>
-  </section>
+      <div class="divider"><span>电芯参数</span></div>
 
-  <!-- ===== 区块2：电芯参数与一致性报告 ===== -->
-  <section class="card" id="sec-cellparams">
-    <div class="card-head">
-      <div class="card-title">
-        <span class="card-no">2</span>
-        <h2>电芯参数设置 &amp; 一致性报告</h2>
-      </div>
-      <p class="card-desc">填写电芯类型与测试条件，系统将估算电芯最大容量并生成一致性 / 质量报告</p>
-    </div>
-    <div class="card-body">
       <div class="form-grid">
         <div class="form-row">
           <label>电池类型</label>
@@ -118,8 +88,8 @@
           <input type="number" id="testCutoffV" placeholder="如 3.0" value="3.0" step="0.01">
         </div>
         <div class="form-row">
-          <label>容量测试·放电电流 (A)</label>
-          <input type="number" id="testDischargeI" placeholder="如 5" value="5" step="0.1">
+          <label>容量测试·放电倍率 (C) <span class="c-hint" id="hintTestDischargeA">≈ 5A</span></label>
+          <input type="number" id="testDischargeC" placeholder="如 1" value="1" step="0.1">
         </div>
         <div class="form-row">
           <label>满充上限电压 (V)</label>
@@ -128,7 +98,44 @@
       </div>
 
       <div class="action-bar">
-        <button class="btn btn-primary" id="btnAnalyze">分析电芯一致性</button>
+        <button class="btn btn-primary" id="btnAnalyze">⚡ 解析并分析电芯</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 区块2：电芯一致性分析 ===== -->
+  <section class="card" id="sec-analysis">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="card-no">2</span>
+        <h2>电芯一致性分析</h2>
+      </div>
+      <p class="card-desc">已解析电芯数据（含系统换算容量）与整体统计、质量评估</p>
+    </div>
+    <div class="card-body">
+      <div id="dataPreviewWrap" class="data-preview-wrap hidden">
+        <div class="preview-head">
+          <h3>已解析电芯数据 <span id="dataCount" class="badge"></span></h3>
+          <div class="preview-actions">
+            <button class="btn btn-ghost btn-sm" id="btnReupload">重新上传</button>
+            <button class="btn btn-ghost btn-sm" id="btnDownloadParsed">导出解析数据</button>
+          </div>
+        </div>
+        <div class="cell-grid-wrap">
+          <div class="cell-grid-head">
+            <div class="cg-group">
+              <span>序号</span><span>容量 (mAh)</span><span>内阻 (mΩ)</span><span>换算容量 (mAh)</span>
+            </div>
+            <div class="cg-group">
+              <span>序号</span><span>容量 (mAh)</span><span>内阻 (mΩ)</span><span>换算容量 (mAh)</span>
+            </div>
+            <div class="cg-group">
+              <span>序号</span><span>容量 (mAh)</span><span>内阻 (mΩ)</span><span>换算容量 (mAh)</span>
+            </div>
+          </div>
+          <div class="cell-grid" id="previewGrid"></div>
+        </div>
+        <p class="preview-note" id="previewNote"></p>
       </div>
 
       <div id="consistencyReport" class="report-area hidden"></div>
@@ -254,6 +261,13 @@
           </span>
         </label>
       </div>
+      <div class="strict-obj" id="strictObj" style="display:none">
+        <span class="strict-obj-label">达标优先 · 次级目标：</span>
+        <label class="strict-obj-opt"><input type="radio" name="strictObj" value="between" checked>
+          串间均衡优先<span class="strict-obj-hint">（每串仍达标，但拉平各串均值、降低串间偏差）</span></label>
+        <label class="strict-obj-opt"><input type="radio" name="strictObj" value="within">
+          串内一致性优先<span class="strict-obj-hint">（维持逐串最优，串间偏差可能略大）</span></label>
+      </div>
       <div class="action-bar">
         <button class="btn btn-primary btn-lg" id="btnPair">⚡ 开始配对计算</button>
       </div>
@@ -265,11 +279,14 @@
           <h3>配对方案 · 每串电芯清单</h3>
           <button class="btn btn-primary btn-sm" id="btnDownloadPair">⬇ 下载配对表 (Excel)</button>
         </div>
-        <div class="table-wrap">
-          <table class="pair-table" id="pairTable">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
+        <div class="str-tabs" id="strTabs"></div>
+        <div class="str-tab-body">
+          <div class="table-wrap">
+            <table class="pair-table" id="pairTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

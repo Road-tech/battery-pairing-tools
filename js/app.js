@@ -109,11 +109,13 @@ const App = {
       }
 
       this.state.cells = result.cells;
+      this.state.colMap = result.colMap;
+      this.state.sheetName = result.sheetName;
+      this.state.parseWarnings = result.warnings || [];
       this.state.excludedIds = new Set();  // 重新上传时清空剔除状态
       status.className = "upload-status ok";
-      status.innerHTML = `✅ 成功解析 <strong>${result.cells.length}</strong> 颗电芯数据（工作表：${result.sheetName}）`;
+      status.innerHTML = `✅ 成功解析 <strong>${result.cells.length}</strong> 颗电芯数据（工作表：${result.sheetName}），请填写下方参数后点击「解析并分析电芯」查看明细与换算容量`;
 
-      this.renderPreview(result);
       this.toast(`成功解析 ${result.cells.length} 颗电芯`, "success");
       this.updateStepStates();
     } catch (e) {
@@ -123,37 +125,45 @@ const App = {
     }
   },
 
-  renderPreview(result) {
+  renderPreview(opts) {
     const wrap = document.getElementById("dataPreviewWrap");
     const grid = document.getElementById("previewGrid");
     const count = document.getElementById("dataCount");
     const note = document.getElementById("previewNote");
+    const cells = opts.cells || [];
+    const colMap = opts.colMap || {};
 
     wrap.classList.remove("hidden");
-    count.textContent = `${result.cells.length} 颗`;
+    count.textContent = `${cells.length} 颗`;
 
-    const show = result.cells.slice(0, 200);
+    const show = cells.slice(0, 200);
     grid.innerHTML = show.map(c => `
       <div class="cell-item">
         <span class="ci-idx">${c.id}</span>
-        <span class="ci-cap">${c.capacity ?? '<span class="text-mute">缺失</span>'}</span>
-        <span class="ci-res">${c.resistance ?? '<span class="text-mute">缺失</span>'}</span>
-        <span class="ci-conv">${c.convertedCapacity ?? '—'}</span>
+        <span class="ci-cap">${c.capacity != null ? c.capacity : '<span class="text-mute">缺失</span>'}</span>
+        <span class="ci-res">${c.resistance != null ? c.resistance : '<span class="text-mute">缺失</span>'}</span>
+        <span class="ci-conv">${c.convertedCapacity != null ? Calc.fmtInt(c.convertedCapacity) : '<span class="text-mute">—</span>'}</span>
       </div>
     `).join("");
-    if (result.cells.length > 200) {
-      note.innerHTML = `仅显示前 200 颗，共 ${result.cells.length} 颗。`;
+    if (cells.length > 200) {
+      note.innerHTML = `仅显示前 200 颗，共 ${cells.length} 颗。`;
     } else {
-      note.innerHTML = result.warnings.length
-        ? "⚠️ " + result.warnings.join("；")
-        : `已识别列：序号=${result.colMap.colId.name || "自动"} / 容量=${result.colMap.colCap.name} / 内阻=${result.colMap.colRes.name}`;
+      const warns = opts.warnings || [];
+      note.innerHTML = warns.length
+        ? "⚠️ " + warns.join("；")
+        : `已识别列：序号=${colMap.colId?.name || "自动"} / 容量=${colMap.colCap?.name || ""} / 内阻=${colMap.colRes?.name || ""}；换算容量为系统按测试参数自动换算的满容量。`;
     }
   },
 
   resetUpload() {
     document.getElementById("dataPreviewWrap").classList.add("hidden");
+    document.getElementById("consistencyReport").classList.add("hidden");
     document.getElementById("uploadStatus").classList.add("hidden");
     this.state.cells = null;
+    this.state.colMap = null;
+    this.state.sheetName = null;
+    this.state.parseWarnings = null;
+    this.state.config = null;
     this.state.excludedIds = new Set();
     this.updateStepStates();
   },
@@ -175,8 +185,8 @@ const App = {
       this.updateCurrentHints();
     });
 
-    // 额定容量变化时，自动换算并更新 C→A 提示
-    ["ratedCapacity", "ratedMaxDischargeC", "chargeCurrentC"].forEach(id => {
+    // 额定容量 / 各倍率变化时，自动换算并更新 C→A 提示
+    ["ratedCapacity", "ratedMaxDischargeC", "chargeCurrentC", "testDischargeC"].forEach(id => {
       document.getElementById(id).addEventListener("input", () => this.updateCurrentHints());
     });
 
@@ -194,10 +204,13 @@ const App = {
     const cap = parseFloat(document.getElementById("ratedCapacity").value) || 0;
     const dC = parseFloat(document.getElementById("ratedMaxDischargeC").value) || 0;
     const cC = parseFloat(document.getElementById("chargeCurrentC").value) || 0;
+    const tC = parseFloat(document.getElementById("testDischargeC").value) || 0;
     document.getElementById("hintMaxDischargeA").textContent =
       cap ? `≈ ${this.cToA(dC, cap).toFixed(1)}A` : "≈ -";
     document.getElementById("hintChargeA").textContent =
       cap ? `≈ ${this.cToA(cC, cap).toFixed(1)}A` : "≈ -";
+    document.getElementById("hintTestDischargeA").textContent =
+      cap ? `≈ ${this.cToA(tC, cap).toFixed(1)}A` : "≈ -";
   },
 
   readConfig() {
@@ -211,7 +224,7 @@ const App = {
       chargeCurrent: this.cToA(chargeC, ratedCapacity),          // 自动换算为 A
       testStartV: parseFloat(document.getElementById("testStartV").value) || 0,
       testCutoffV: parseFloat(document.getElementById("testCutoffV").value) || 0,
-      testDischargeI: parseFloat(document.getElementById("testDischargeI").value) || 0,
+      testDischargeC: parseFloat(document.getElementById("testDischargeC").value) || 0,
       fullChargeV: parseFloat(document.getElementById("fullChargeV").value) || 0
     };
   },
@@ -219,7 +232,7 @@ const App = {
   analyzeCells() {
     if (!this.state.cells || this.state.cells.length === 0) {
       this.toast("请先上传电芯数据", "warn");
-      this.scrollTo("sec-upload");
+      this.scrollTo("sec-input");
       return;
     }
     const config = this.readConfig();
@@ -228,6 +241,17 @@ const App = {
       return;
     }
     this.state.config = config;
+
+    // 根据测试三参数（起始电压/截止电压/放电倍率）刷新系统换算容量
+    this.state.cells = Calc.applyConverted(this.state.cells, config);
+
+    // 展示「已解析电芯数据」——含每颗电芯的系统换算容量
+    this.renderPreview({
+      cells: this.state.cells,
+      warnings: this.state.parseWarnings || [],
+      colMap: this.state.colMap || {},
+      sheetName: this.state.sheetName || "—"
+    });
 
     const active = this.activeCells();
     if (!active || active.length === 0) {
@@ -304,31 +328,29 @@ const App = {
           <div class="stat-card"><div class="lbl">容量最大值</div><div class="val">${Calc.fmtInt(cs.max)}<span class="unit">mAh</span></div></div>
           <div class="stat-card"><div class="lbl">容量最小值</div><div class="val">${Calc.fmtInt(cs.min)}<span class="unit">mAh</span></div></div>
           <div class="stat-card"><div class="lbl">容量极差</div><div class="val">${Calc.fmtInt(cs.range)}<span class="unit">mAh</span></div></div>
-          <div class="stat-card ${r.capGrade.class === 'danger' ? 'danger' : ''}"><div class="lbl">容量偏差率</div><div class="val">${Calc.fmt(cs.devPct, 2)}<span class="unit">%</span></div></div>
-          <div class="stat-card"><div class="lbl">容量变异系数</div><div class="val">${Calc.fmt(cs.cv, 2)}<span class="unit">%</span></div></div>
+          <div class="stat-card ${r.capGrade.class === 'danger' ? 'danger' : ''}"><div class="lbl">中心偏差率(中90%)</div><div class="val">${Calc.fmt(r.capCentral.centralDevPct, 2)}<span class="unit">%</span></div></div>
+          <div class="stat-card ${r.capCentral.concentratedPct >= 90 ? 'ok' : ''}"><div class="lbl">集中率(±2%)</div><div class="val">${Calc.fmt(r.capCentral.concentratedPct, 1)}<span class="unit">%</span></div></div>
         </div>
         <div class="stat-grid" style="margin-top:10px">
           <div class="stat-card"><div class="lbl">内阻均值</div><div class="val">${Calc.fmt(rs.avg, 2)}<span class="unit">mΩ</span></div></div>
           <div class="stat-card"><div class="lbl">内阻最大值</div><div class="val">${Calc.fmt(rs.max, 2)}<span class="unit">mΩ</span></div></div>
           <div class="stat-card"><div class="lbl">内阻最小值</div><div class="val">${Calc.fmt(rs.min, 2)}<span class="unit">mΩ</span></div></div>
           <div class="stat-card"><div class="lbl">内阻极差</div><div class="val">${Calc.fmt(rs.range, 2)}<span class="unit">mΩ</span></div></div>
-          <div class="stat-card ${r.resGrade.class === 'danger' ? 'danger' : ''}"><div class="lbl">内阻偏差率</div><div class="val">${Calc.fmt(rs.devPct, 2)}<span class="unit">%</span></div></div>
+          <div class="stat-card ${r.resGrade.class === 'danger' ? 'danger' : ''}"><div class="lbl">中心偏差率(中90%)</div><div class="val">${Calc.fmt(r.resCentral.centralDevPct, 2)}<span class="unit">%</span></div></div>
+          <div class="stat-card ${r.resCentral.concentratedPct >= 90 ? 'ok' : ''}"><div class="lbl">集中率(±10%)</div><div class="val">${Calc.fmt(r.resCentral.concentratedPct, 1)}<span class="unit">%</span></div></div>
         </div>
       </div>
 
       <div class="report-section">
-        <h4>🔋 容量估算</h4>
+        <h4>🔋 容量换算</h4>
         <div class="stat-grid">
-          <div class="stat-card highlight"><div class="lbl">估算电芯满容量(均值)</div><div class="val">${Calc.fmtInt(r.estFullAvg)}<span class="unit">mAh</span></div></div>
-          <div class="stat-card highlight"><div class="lbl">估算电芯满容量(最大)</div><div class="val">${Calc.fmtInt(r.estFullMax)}<span class="unit">mAh</span></div></div>
+          <div class="stat-card highlight"><div class="lbl">换算电芯满容量(均值)</div><div class="val">${Calc.fmtInt(r.estFullAvg)}<span class="unit">mAh</span></div></div>
+          <div class="stat-card highlight"><div class="lbl">换算电芯满容量(最大)</div><div class="val">${Calc.fmtInt(r.estFullMax)}<span class="unit">mAh</span></div></div>
           <div class="stat-card"><div class="lbl">额定容量</div><div class="val">${Calc.fmtInt(r.ratedCap)}<span class="unit">mAh</span></div></div>
           <div class="stat-card"><div class="lbl">达标率(≥额定)</div><div class="val">${Calc.fmt(r.meetPct, 1)}<span class="unit">% (${r.meetRated}/${cs.n})</span></div></div>
         </div>
         <p style="font-size:12px;color:var(--text-mute);margin-top:8px">
-          说明：${this.state.cells.some(c => c.convertedCapacity != null)
-            ? `采用表格「换算容量」列作为满容量依据（已计入测试条件换算）。`
-            : `根据测试区间 ${cfg.testStartV}V → ${cfg.testCutoffV}V 及 ${chem.name} 放电曲线反推满放(至 ${chem.dischargeMinV}V)容量，为近似值。`}
-          达标率按估算满容量逐颗对比额定容量计算。
+          说明：系统根据测试参数自动换算——实测容量在 ${cfg.testStartV}V→${cfg.testCutoffV}V、放电倍率 ${cfg.testDischargeC}C（≈${cfg.ratedCapacity ? (cfg.testDischargeC * cfg.ratedCapacity / 1000).toFixed(1) : 0}A）测得，结合 ${chem.name} 放电曲线反推满放(至 ${chem.dischargeMinV}V) 容量。注：4.2V→3.0V 仅放出约 90% 满容量，换算会补回 3.0V→${chem.dischargeMinV}V 的尾段（约 8%~10%）；再按 Peukert 方程将放电倍率折算到标准 0.2C(C5) 条件。达标率按换算满容量逐颗对比额定容量计算。
         </p>
       </div>
 
@@ -348,7 +370,7 @@ const App = {
 
       <div class="report-section">
         <h4>📈 内阻分布</h4>
-        ${this._distributionChart(this.activeCells().map(c => c.resistance).filter(v => v != null))}
+        ${this._distributionChart(this.activeCells().map(c => c.resistance).filter(v => v != null), 1)}
       </div>
 
       <div class="report-section">
@@ -359,29 +381,36 @@ const App = {
   },
 
   _qualityAdvice(r) {
+    const capConc = r.capCentral.concentratedPct;
+    const resConc = r.resCentral.concentratedPct;
+    const fewOutliers = (capConc >= 88 && resConc >= 88);
     let advice = [];
     if (r.capGrade.level === "较差") advice.push("容量偏差过大，建议重新筛选或分档使用，避免木桶效应严重影响续航。");
     else if (r.capGrade.level === "一般") advice.push("容量偏差偏大，组电池时务必做好串间均衡，建议保留更多余量。");
-    else advice.push("容量一致性良好，适合直接配对组电池。");
+    else advice.push(`容量一致性${r.capGrade.level}，约 ${capConc.toFixed(0)}% 电芯容量集中在 ±2% 中部区间${fewOutliers ? "，仅个别电芯偏离，整体一致性良好" : ""}。`);
 
     if (r.resGrade.level === "较差") advice.push("内阻偏差过大，并联组内可能出现电流不均、局部过热，建议按内阻分档。");
     else if (r.resGrade.level === "一般") advice.push("内阻偏差一般，注意大电流放电时的发热管理。");
+    else advice.push(`内阻一致性${r.resGrade.level}，约 ${resConc.toFixed(0)}% 电芯内阻集中在 ±10% 中部区间${fewOutliers ? "，仅个别电芯偏离，整体一致性良好" : ""}。`);
+
+    if (fewOutliers) advice.push("评级基于中间 90% 电芯的分布形态，少数偏离较大的电芯不影响整体一致性结论（已列于「建议剔除的电芯」）。");
 
     if (r.meetPct < 50) advice.push(`仅 ${r.meetPct.toFixed(1)}% 电芯达到额定容量，可能存在测试条件偏差或电芯衰减。`);
 
     return `<ul style="margin-left:18px;font-size:13px;color:var(--text-soft);line-height:1.8">${advice.map(a => `<li>${a}</li>`).join("")}</ul>`;
   },
 
-  _distributionChart(values) {
+  _distributionChart(values, decimals = 0) {
     if (!values.length) return "<p>无数据</p>";
     const s = Calc.stats(values);
     const bins = 8;
     const step = s.range > 0 ? s.range / bins : 1;
     const hist = new Array(bins).fill(0);
     const labels = [];
+    const fmt = v => decimals > 0 ? Number(v).toFixed(decimals) : Math.round(v).toString();
     for (let i = 0; i < bins; i++) {
       const lo = s.min + i * step;
-      labels.push(`${Math.round(lo)}~${Math.round(lo + step)}`);
+      labels.push(`${fmt(lo)}~${fmt(lo + step)}`);
     }
     values.forEach(v => {
       let idx = Math.floor((v - s.min) / step);
@@ -503,23 +532,23 @@ const App = {
     const cfg = this.readConfig();
     const chem = BATTERY_CHEMISTRIES[cfg.cellType] || BATTERY_CHEMISTRIES.custom;
 
-    // 每颗电芯容量：优先用表格换算容量列(用户已换算)，其次电压曲线估算，最后额定容量
-    // 统计均基于「剔除后剩余」电芯(activeCells)
+    // 刷新系统换算容量（基于当前测试参数），保证参数变更后使用最新值
+    if (this.state.cells) this.state.cells = Calc.applyConverted(this.state.cells, cfg);
+
+    // 每颗电芯容量：使用系统换算容量（已按测试三参数标准化），否则回落实测容量
     let cellCapacity = cfg.ratedCapacity;
     let capSource = "额定容量";
     const active = this.activeCells();
     if (active && active.length) {
       const convCaps = active.map(c => c.convertedCapacity).filter(v => v != null && v > 0);
-      if (convCaps.length > active.length * 0.5) {
+      if (convCaps.length) {
         cellCapacity = Math.round(convCaps.reduce((a, b) => a + b, 0) / convCaps.length);
-        capSource = "换算容量(均值)";
+        capSource = "容量换算(均值)";
       } else {
         const caps = active.map(c => c.capacity).filter(v => v != null && v > 0);
         if (caps.length) {
-          const avgCap = caps.reduce((a, b) => a + b, 0) / caps.length;
-          const estFull = Calc.estimateFullCapacity(avgCap, cfg.testStartV, cfg.testCutoffV, cfg.cellType);
-          cellCapacity = Math.round(estFull);
-          capSource = "电压曲线估算";
+          cellCapacity = Math.round(caps.reduce((a, b) => a + b, 0) / caps.length);
+          capSource = "实测容量(均值)";
         }
       }
     }
@@ -656,12 +685,19 @@ const App = {
         this.toast("配对表已下载", "success");
       }
     });
+    // 配对模式切换时，显示/隐藏“达标优先”的串间次级目标
+    document.querySelectorAll('input[name="pairMode"]').forEach(r => {
+      r.addEventListener("change", () => {
+        const strict = this.getPairMode() === "strict";
+        document.getElementById("strictObj").style.display = strict ? "flex" : "none";
+      });
+    });
   },
 
   bindStepNav() {
     const map = {
-      1: "sec-upload",
-      2: "sec-cellparams",
+      1: "sec-input",
+      2: "sec-analysis",
       3: "sec-packconfig",
       4: "sec-tolerance",
       5: "sec-pairing",
@@ -687,8 +723,8 @@ const App = {
     resultEl.querySelectorAll(".gap-report").forEach(el => el.remove());
 
     if (!this.state.cells || this.state.cells.length === 0) {
-      this.showError("无法计算", ["请先上传电芯数据（第 1 步）。"]);
-      this.scrollTo("sec-upload");
+      this.showError("无法计算", ["请先上传电芯数据（第 1 步：上传数据 & 参数）。"]);
+      this.scrollTo("sec-input");
       return;
     }
     if (!this.state.packInfo) {
@@ -699,10 +735,19 @@ const App = {
 
     const { s, p, totalCells } = this.state.packInfo;
     const tol = this.readTolerance();
+    const cfg = this.readConfig();
+    // 用最新配置刷新系统换算容量，保证参数变更后配对使用最新值
+    if (this.state.cells) this.state.cells = Calc.applyConverted(this.state.cells, cfg);
+    this.state.config = cfg;
 
     const active = this.activeCells();
     const mode = this.getPairMode();
-    const result = mode === "strict" ? Pair.runStrict(active, s, p, tol) : Pair.run(active, s, p, tol);
+    // 达标优先下的次级目标：串间均衡优先（默认）在保持每串达标前提下降低串间偏差
+    const strictObjEl = document.querySelector('input[name="strictObj"]:checked');
+    const balanceBetween = mode === "strict" && (!strictObjEl || strictObjEl.value === "between");
+    const result = mode === "strict"
+      ? Pair.runStrict(active, s, p, tol, { balanceBetween })
+      : Pair.run(active, s, p, tol);
     this.state.pairing = result;
 
     if (!result.ok) {
@@ -788,61 +833,85 @@ const App = {
   renderPairTable(result, tol) {
     const el = document.getElementById("pairResult");
     el.classList.remove("hidden");
+    const tabsEl = document.getElementById("strTabs");
     const thead = document.querySelector("#pairTable thead");
     const tbody = document.querySelector("#pairTable tbody");
 
     thead.innerHTML = `<tr>
-      <th>串号</th><th>位置</th><th>电芯序号</th><th>容量(mAh)</th><th>内阻(mΩ)</th><th>相对均值偏差</th>
+      <th>位置</th><th>电芯序号</th><th>容量(mAh)</th><th>内阻(mΩ)</th><th>相对均值偏差(容量/内阻)</th>
     </tr>`;
 
-    let html = "";
+    // 构建标签：每串一个 + 末尾“未使用”标签（20+ 串时横向滚动切换）
+    const tabs = [];
     result.strings.forEach(str => {
-      const capOkCls = str.capOk ? "ok" : "warn";
-      const resOkCls = str.resOk ? "ok" : "warn";
-      html += `<tr class="str-header">
-        <td colspan="6">
-          第 ${str.idx} 串 · ${str.count}颗 ·
-          容量均值 ${str.capAvg.toFixed(1)}mAh (偏差 ${str.capDev.toFixed(2)}% ${str.capOk ? '✓' : '⚠'}) ·
-          内阻均值 ${str.resAvg.toFixed(2)}mΩ (偏差 ${str.resDev.toFixed(2)}% ${str.resOk ? '✓' : '⚠'})
-        </td>
-      </tr>`;
-      str.cells.forEach((cell, ci) => {
-        const capDevPct = str.capAvg ? ((cell.capacity - str.capAvg) / str.capAvg * 100) : 0;
-        const resDevPct = str.resAvg ? ((cell.resistance - str.resAvg) / str.resAvg * 100) : 0;
-        const capCls = Math.abs(capDevPct) > tol.tolCapIn ? "warn-cell" : "";
-        const resCls = Math.abs(resDevPct) > tol.tolResIn ? "warn-cell" : "";
-        html += `<tr class="cell-row">
-          <td>${str.idx}</td>
-          <td>P${ci + 1}</td>
-          <td><strong>${cell.id}</strong></td>
-          <td class="${capCls}">${cell.capacity}</td>
-          <td class="${resCls}">${cell.resistance}</td>
-          <td><span style="color:${Math.abs(capDevPct) > tol.tolCapIn ? 'var(--warn)' : 'var(--text-mute)'}">${capDevPct > 0 ? '+' : ''}${capDevPct.toFixed(2)}%</span> / <span style="color:${Math.abs(resDevPct) > tol.tolResIn ? 'var(--warn)' : 'var(--text-mute)'}">${resDevPct > 0 ? '+' : ''}${resDevPct.toFixed(2)}%</span></td>
-        </tr>`;
-      });
+      const status = (str.capOk && str.resOk) ? "ok" : (str.capOk || str.resOk ? "warn" : "danger");
+      tabs.push({ type: "str", idx: str.idx, count: str.count, status });
     });
-
-    // 未使用电芯（用户上传数量 > 需求数量）
     if (result.unused && result.unused.length > 0) {
-      const unusedTitle = result.mode === "strict"
-        ? `未使用电芯（${result.unused.length} 颗，无法凑出满足偏差要求的达标串）`
-        : `未使用电芯（多余 ${result.unused.length} 颗，因上传数量超过目标配置）`;
-      html += `<tr class="str-header" style="background:var(--warn-soft)">
-        <td colspan="6">${unusedTitle}</td>
-      </tr>`;
-      result.unused.forEach(cell => {
-        html += `<tr class="cell-row">
-          <td>—</td>
-          <td>—</td>
-          <td><strong>${cell.id}</strong></td>
-          <td>${cell.capacity}</td>
-          <td>${cell.resistance}</td>
-          <td><span class="text-mute">未使用</span></td>
-        </tr>`;
-      });
+      tabs.push({ type: "unused", count: result.unused.length });
     }
 
-    tbody.innerHTML = html;
+    tabsEl.innerHTML = tabs.map((t, i) => {
+      if (t.type === "unused") {
+        return `<button class="str-tab unused ${i === 0 ? "active" : ""}" data-tab="${i}">未使用 (${t.count})</button>`;
+      }
+      const dotCls = t.status === "ok" ? "ok" : t.status === "warn" ? "warn" : "danger";
+      const mark = t.status === "ok" ? "" : " ⚠";
+      return `<button class="str-tab ${i === 0 ? "active" : ""}" data-tab="${i}" title="第${t.idx}串 · ${t.count}颗">
+        <span class="dot ${dotCls}"></span>第${t.idx}串${mark}</button>`;
+    }).join("");
+
+    // 渲染指定标签（仅当前串的清单，保持 block 内不拉长页面）
+    const renderTab = (i) => {
+      tabsEl.querySelectorAll(".str-tab").forEach(b => b.classList.toggle("active", +b.dataset.tab === i));
+      const activeBtn = tabsEl.querySelector(`.str-tab[data-tab="${i}"]`);
+      if (activeBtn) activeBtn.scrollIntoView({ inline: "nearest", block: "nearest" });
+      const tab = tabs[i];
+      let html = "";
+      if (tab.type === "unused") {
+        const title = result.mode === "strict"
+          ? `未使用电芯（${result.unused.length} 颗，无法凑出满足偏差要求的达标串）`
+          : `未使用电芯（多余 ${result.unused.length} 颗，因上传数量超过目标配置）`;
+        html += `<tr class="str-header" style="background:var(--warn-soft)"><td colspan="5">${title}</td></tr>`;
+        result.unused.forEach(cell => {
+          html += `<tr class="cell-row">
+            <td>—</td>
+            <td><strong>${cell.id}</strong></td>
+            <td>${cell.capacity}</td>
+            <td>${cell.resistance}</td>
+            <td><span class="text-mute">未使用</span></td>
+          </tr>`;
+        });
+      } else {
+        const str = result.strings[tab.idx - 1];
+        html += `<tr class="str-header">
+          <td colspan="5">
+            第 ${str.idx} 串 · ${str.count}颗 ·
+            容量均值 ${str.capAvg.toFixed(1)}mAh (偏差 ${str.capDev.toFixed(2)}% ${str.capOk ? "✓" : "⚠"}) ·
+            内阻均值 ${str.resAvg.toFixed(2)}mΩ (偏差 ${str.resDev.toFixed(2)}% ${str.resOk ? "✓" : "⚠"})
+          </td>
+        </tr>`;
+        str.cells.forEach((cell, ci) => {
+          const capDevPct = str.capAvg ? ((cell.capacity - str.capAvg) / str.capAvg * 100) : 0;
+          const resDevPct = str.resAvg ? ((cell.resistance - str.resAvg) / str.resAvg * 100) : 0;
+          const capCls = Math.abs(capDevPct) > tol.tolCapIn ? "warn-cell" : "";
+          const resCls = Math.abs(resDevPct) > tol.tolResIn ? "warn-cell" : "";
+          html += `<tr class="cell-row">
+            <td>P${ci + 1}</td>
+            <td><strong>${cell.id}</strong></td>
+            <td class="${capCls}">${cell.capacity}</td>
+            <td class="${resCls}">${cell.resistance}</td>
+            <td><span style="color:${Math.abs(capDevPct) > tol.tolCapIn ? 'var(--warn)' : 'var(--text-mute)'}">${capDevPct > 0 ? '+' : ''}${capDevPct.toFixed(2)}%</span> / <span style="color:${Math.abs(resDevPct) > tol.tolResIn ? 'var(--warn)' : 'var(--text-mute)'}">${resDevPct > 0 ? '+' : ''}${resDevPct.toFixed(2)}%</span></td>
+          </tr>`;
+        });
+      }
+      tbody.innerHTML = html;
+    };
+
+    tabsEl.querySelectorAll(".str-tab").forEach(b => {
+      b.addEventListener("click", () => renderTab(+b.dataset.tab));
+    });
+    renderTab(0);
   },
 
   /* ==================== 成品电池报告 ==================== */
@@ -850,7 +919,7 @@ const App = {
     const el = document.getElementById("packReport");
     el.classList.remove("hidden");
     const chem = BATTERY_CHEMISTRIES[cfg.cellType] || BATTERY_CHEMISTRIES.custom;
-    const hasConverted = result.hasConverted;
+    // 系统已统一换算：result.between.capAvg 即为换算后的满容量均值，无需再分支
     // 达标优先模式可能配不满，实际配齐串数
     const actualS = result.mode === "strict" && result.gap > 0 ? result.matched : pack.s;
     const gapBanner = (result.mode === "strict" && result.gap > 0)
@@ -873,19 +942,12 @@ const App = {
     const protectVoltages = [3.0, 2.8, 2.5];
     const capAtVoltages = protectVoltages.map(v => {
       const ratio = Calc.capacityRatioAt(v, DISCHARGE_CURVE[cfg.cellType] || DISCHARGE_CURVE.custom);
-      // 若有换算容量，则已是满放容量，直接按比例折算；否则从实测区间反推满放容量
-      let fullStrCapAh;
-      if (hasConverted) {
-        fullStrCapAh = result.between.capAvg * pack.p / 1000;
-      } else {
-        fullStrCapAh = Calc.estimateFullCapacity(result.between.capAvg * pack.p, cfg.testStartV, cfg.testCutoffV, cfg.cellType) / 1000;
-      }
+      // 系统换算容量已是满放基准，直接按比例折算
+      const fullStrCapAh = result.between.capAvg * pack.p / 1000;
       return { v, capAh: fullStrCapAh * ratio, ratio };
     });
 
-    const capSourceText = hasConverted
-      ? `基于表格中的换算容量（已按 ${chem.name} 放电曲线折算到满放），不再额外估算。`
-      : `基于实测容量 ${cfg.testStartV}V→${cfg.testCutoffV}V，用放电曲线反推至满放（${chem.dischargeMinV}V）。`;
+    const capSourceText = `系统根据测试参数自动换算——实测容量 ${cfg.testStartV}V→${cfg.testCutoffV}V、放电倍率 ${cfg.testDischargeC}C（≈${cfg.ratedCapacity ? (cfg.testDischargeC * cfg.ratedCapacity / 1000).toFixed(1) : 0}A），结合 ${chem.name} 放电曲线反推满放(至 ${chem.dischargeMinV}V)：4.2V→3.0V 仅约 90% 满容量，换算补回 3.0V→${chem.dischargeMinV}V 尾段(约 8%~10%)，再按 Peukert 方程折算到标准 0.2C(C5)，不再额外估算。`;
 
     el.innerHTML = `
       ${gapBanner}
@@ -916,7 +978,7 @@ const App = {
 
       <div class="report-section">
         <h4>🛡️ 保护板不同截止电压下预估容量</h4>
-        <p style="font-size:12px;color:var(--text-mute);margin-bottom:8px">基于 ${chem.name} 放电曲线估算（满充 ${cfg.fullChargeV || chem.chargeV}V 放至对应截止电压）。${hasConverted ? '已采用表格换算容量作为满放基准。' : '已从实测区间反推满放基准。'}</p>
+        <p style="font-size:12px;color:var(--text-mute);margin-bottom:8px">基于 ${chem.name} 放电曲线估算（满充 ${cfg.fullChargeV || chem.chargeV}V 放至对应截止电压）。系统已按测试参数将每颗电芯换算至满放基准。</p>
         <table class="dev-table">
           <thead><tr><th>保护截止电压</th><th>可用容量比例</th><th>预估成品容量</th><th>预估可放出能量</th></tr></thead>
           <tbody>
@@ -967,6 +1029,9 @@ const App = {
           <div class="stat-card"><div class="lbl">串间内阻极差</div><div class="val">${Calc.fmt(result.between.resSumMax - result.between.resSumMin, 2)}<span class="unit">mΩ</span></div></div>
         </div>
         <div style="margin-top:12px;padding:12px 16px;background:${result.between.capOk && result.between.resOk ? 'var(--ok-soft)' : 'var(--warn-soft)'};border-radius:8px;border-left:3px solid ${result.between.capOk && result.between.resOk ? 'var(--ok)' : 'var(--warn)'};font-size:13px">
+          ${result.mode === 'strict' && result.balanceBetween
+            ? '🔧 已启用「串间均衡优先」：在<b>每串均达标</b>的硬约束下，通过约束内交换把各串均值拉平，<b>未牺牲任何串内一致性</b>。若电芯本身分布较散，串间偏差存在理论下限（达标要求各串占据不同容量带），此时可放宽容差或补充更集中批次的电芯。'
+            : ''}
           ${result.between.capOk && result.between.resOk
             ? '✅ 串间一致性达标，配对方案可用。'
             : '⚠️ 串间偏差超出设定范围，建议：① 调整偏差容忍度 ② 增加并联数摊薄差异 ③ 更换部分极端电芯。'}

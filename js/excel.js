@@ -32,16 +32,7 @@ const ExcelIO = {
       }
     });
 
-    // 换算容量（可选）
-    const colConv = { idx: -1, name: null };
-    headers.forEach((h, i) => {
-      const hn = norm(h);
-      if (colConv.idx < 0 && (hn.includes("换算") || hn.includes("convert") || hn.includes("标准"))) {
-        colConv.idx = i; colConv.name = h;
-      }
-    });
-
-    return { colId, colCap, colRes, colConv };
+    return { colId, colCap, colRes };
   },
 
   /* ---------- 解析 Excel 文件 ----------
@@ -124,19 +115,12 @@ const ExcelIO = {
           if (v !== null && v !== "" && !isNaN(Number(v))) resistance = Number(v);
         }
 
-        // 换算容量（可选，保留整数）
-        let convCap = null;
-        if (cols.colConv.idx >= 0) {
-          const v = r[cols.colConv.idx];
-          if (v !== null && v !== "" && !isNaN(Number(v))) convCap = Math.round(Number(v));
-        }
-
         if (capacity === null && resistance === null) {
           missingRows.push(i + 1);
           continue;
         }
 
-        cells.push({ id, capacity, resistance, convertedCapacity: convCap });
+        cells.push({ id, capacity, resistance });
       }
 
       if (cells.length === 0) continue;
@@ -169,7 +153,11 @@ const ExcelIO = {
   exportParsed(cells) {
     const data = [["序号", "容量(mAh)", "内阻(mΩ)", "换算容量(mAh)"]];
     cells.forEach(c => {
-      data.push([c.id, c.capacity, c.resistance, c.convertedCapacity || ""]);
+      // 换算容量优先使用系统按测试参数自动换算的满容量
+      const conv = c.convertedCapacity != null
+        ? Math.round(c.convertedCapacity)
+        : (c.capacity != null ? c.capacity : "");
+      data.push([c.id, c.capacity != null ? c.capacity : "", c.resistance != null ? c.resistance : "", conv]);
     });
     const ws = XLSX.utils.aoa_to_sheet(data);
     ws["!cols"] = [{ wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 16 }];

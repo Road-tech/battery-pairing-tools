@@ -40,7 +40,7 @@ const Pair = {
       };
     }
 
-    // 2. 标记有效容量：优先使用用户已换算的满放容量(convertedCapacity)，否则用实测容量
+    // 2. 标记有效容量：优先使用系统换算的满放容量(convertedCapacity)，否则用实测容量
     valid.forEach(c => {
       c._cap = (c.convertedCapacity != null && !isNaN(c.convertedCapacity) && c.convertedCapacity > 0)
         ? c.convertedCapacity
@@ -187,14 +187,88 @@ const Pair = {
     return rs.devPct;
   },
 
+  /* 单串是否“达标”（串内容量/内阻偏差均不超过容差） */
+  _strWithinOk(group, tol) {
+    const cs = Calc.stats(group.map(c => c.capacity));
+    const rs = Calc.stats(group.map(c => c.resistance));
+    return cs.devPct <= tol.tolCapIn && rs.devPct <= tol.tolResIn;
+  },
+
+  /* 串间综合偏差评分 = 串间容量偏差% + 串间内阻(和)偏差% */
+  _betweenScore(groups) {
+    const capAvgs = groups.map(s => Calc.stats(s.map(c => c.capacity)).avg);
+    const resSums = groups.map(s => Calc.stats(s.map(c => c.resistance)).sum);
+    return Calc.stats(capAvgs).devPct + Calc.stats(resSums).devPct;
+  },
+
+  /* ---------- 达标优先下的“串间均衡”优化 ----------
+   * 在严格保持“每串都达标（串内容差≤容差）”的硬约束下，
+   * 通过电芯交换把各串均值拉向整体均值，降低串间(容量+内阻)偏差。
+   * 仅接受“交换后两串串内容差仍达标”的交换，因此绝不会破坏达标。
+   * 这是“达标优先 / 串间均衡优先”模式的核心：用最小的达标代价换取最小的串间偏差。
+   */
+  _optimizeResStrict(groups, tol) {
+    const s = groups.length;
+    if (!groups[0]) return;
+    const P = groups[0].length;
+    const total = s * P;
+    const allCaps = groups.flat().map(c => c._cap);
+    const avgCap = allCaps.reduce((a, b) => a + b, 0) / total;
+    const capThreshold = avgCap * 0.01; // 仅交换容量差极小者，保护容量均衡
+    let improved = true, iter = 0; const maxIter = 30;
+    while (improved && iter < maxIter) {
+      improved = false; iter++;
+      for (let i = 0; i < s; i++) for (let j = i + 1; j < s; j++) {
+        const gi = groups[i], gj = groups[j];
+        for (let a = 0; a < gi.length; a++) for (let b = 0; b < gj.length; b++) {
+          if (Math.abs(gi[a]._cap - gj[b]._cap) > capThreshold) continue;
+          const before = this._withinResDev(gi) + this._withinResDev(gj);
+          const tA = gi[a], tB = gj[b]; gi[a] = tB; gj[b] = tA;
+          const okI = this._strWithinOk(gi, tol), okJ = this._strWithinOk(gj, tol);
+          const after = this._withinResDev(gi) + this._withinResDev(gj);
+          if (okI && okJ && after < before - 1e-9) improved = true;
+          else { gi[a] = tA; gj[b] = tB; }
+        }
+      }
+    }
+  },
+
+  _optimizeBetweenStrict(groups, tol) {
+    const s = groups.length;
+    if (!groups[0]) return;
+    let improved = true, iter = 0; const maxIter = 25;
+    while (improved && iter < maxIter) {
+      improved = false; iter++;
+      for (let i = 0; i < s; i++) for (let j = i + 1; j < s; j++) {
+        const gi = groups[i], gj = groups[j];
+        for (let a = 0; a < gi.length; a++) for (let b = 0; b < gj.length; b++) {
+          const before = this._betweenScore(groups);
+          const tA = gi[a], tB = gj[b]; gi[a] = tB; gj[b] = tA;
+          const okI = this._strWithinOk(gi, tol), okJ = this._strWithinOk(gj, tol);
+          if (okI && okJ) {
+            const after = this._betweenScore(groups);
+            if (after < before - 1e-9) improved = true;
+            else { gi[a] = tA; gj[b] = tB; }
+          } else {
+            gi[a] = tA; gj[b] = tB;
+          }
+        }
+      }
+    }
+  },
+
   /* ============================================================
    * 模式二：达标优先配对（runStrict）
    * 以「偏差范围」为首要目标：每一串都必须满足
    *   串内容量偏差 ≤ tolCapIn 且 串内内阻偏差 ≤ tolResIn
    * 从第 1 串开始逐串构建，凑不出达标串即停止，返回缺口信息。
    * ============================================================ */
-  runStrict(cells, s, p, tolerance) {
+  runStrict(cells, s, p, tolerance, opts) {
     const tol = tolerance || { tolCapIn: 2, tolResIn: 15, tolCapBetween: 1, tolResBetween: 10 };
+    // opts.balanceBetween: 达标优先下的次级目标——“串间均衡优先”
+    //   true  → 在保证每串都达标的前提下，尽量拉平各串均值，降低串间偏差（推荐）
+    //   false → 串内一致性绝对优先（维持原有逐串贪心结果）
+    const balanceBetween = !!(opts && opts.balanceBetween);
 
     if (!cells || cells.length === 0) {
       return { ok: false, error: "没有可用的电芯数据，请先上传并解析。" };
@@ -240,6 +314,19 @@ const Pair = {
     const matched = strings.length;
     const gap = s - matched;
     const gapCells = gap * p;
+
+    // 5.5 串间均衡优先：在“每串都达标”的硬约束下，最小化串间偏差
+    //     （仅接受保持达标的交换，绝不破坏一致性；对“串内一致性优先”选项不生效）
+    if (balanceBetween && matched > 1) {
+      const groups = strings.map(st => st.cells);
+      this._optimizeResStrict(groups, tol);
+      this._optimizeBetweenStrict(groups, tol);
+      strings.length = 0;
+      for (let i = 0; i < groups.length; i++) {
+        strings.push(this._stringStats(i + 1, groups[i], tol));
+      }
+    }
+
     const requirement = this._computeRequirement(strings, valid, tol);
 
     // 6. 串间统计（仅基于已配串）
@@ -248,6 +335,7 @@ const Pair = {
     return {
       ok: true,
       mode: "strict",
+      balanceBetween,
       strings,
       between,
       hasConverted: valid.some(c =>
